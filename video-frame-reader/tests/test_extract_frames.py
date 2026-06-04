@@ -7,6 +7,7 @@ from scripts.extract_frames import (
     compute_frame_diff,
     estimate_tokens,
     calculate_cost_jpy,
+    subsample_keyframes,
 )
 
 
@@ -24,7 +25,38 @@ class TestComputeFrameDiff:
         frame1 = np.zeros((100, 100, 3), dtype=np.uint8)
         frame2 = np.full((100, 100, 3), 128, dtype=np.uint8)
         diff = compute_frame_diff(frame1, frame2)
-        assert 48.0 <= diff <= 52.0
+        # 全ピクセルが 128 変化（> 10）→ 100% のピクセルが変化
+        assert diff == pytest.approx(100.0, abs=1.0)
+
+    def test_localized_change_detection(self):
+        # 10x10 px (= 1%) だけ変化 → 平均差分では検出困難だが % 指標なら ~1.0%
+        frame1 = np.zeros((100, 100, 3), dtype=np.uint8)
+        frame2 = np.zeros((100, 100, 3), dtype=np.uint8)
+        frame2[0:10, 0:10] = 128
+        diff = compute_frame_diff(frame1, frame2)
+        assert 0.9 <= diff <= 1.1
+
+
+class TestSubsampleKeyframes:
+    def _make_kf(self, n: int):
+        dummy = [(None, float(i)) for i in range(n)]
+        return dummy
+
+    def test_no_subsample_when_under_limit(self):
+        kf = self._make_kf(10)
+        result = subsample_keyframes(kf, 20)
+        assert len(result) == 10
+
+    def test_subsample_to_max(self):
+        kf = self._make_kf(100)
+        result = subsample_keyframes(kf, 20)
+        assert len(result) == 20
+
+    def test_includes_first_and_last(self):
+        kf = self._make_kf(100)
+        result = subsample_keyframes(kf, 20)
+        assert result[0][1] == 0.0
+        assert result[-1][1] == 99.0
 
 
 class TestEstimateTokens:

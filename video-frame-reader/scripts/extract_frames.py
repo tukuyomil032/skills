@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import sys
 import tempfile
 from pathlib import Path
 
@@ -18,10 +19,15 @@ JPY_PER_USD = 150.0
 
 
 def compute_frame_diff(frame1: np.ndarray, frame2: np.ndarray) -> float:
-    """2フレーム間の平均ピクセル差分をパーセンテージで返す（0.0〜100.0）。"""
+    """10グレー以上変化したピクセルの割合（%）を返す（0.0〜100.0）。
+
+    平均差分と異なり、局所的な変化（プログレスバー・UI要素の更新など）を
+    全体の平均で希釈せずに検出できる。圧縮ノイズ（< 10グレー）は無視する。
+    """
     gray1 = cv2.cvtColor(frame1, cv2.COLOR_BGR2GRAY).astype(float)
     gray2 = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY).astype(float)
-    return (np.abs(gray1 - gray2).mean() / 255.0) * 100.0
+    diff = np.abs(gray1 - gray2)
+    return float((diff > 10).mean() * 100.0)
 
 
 def estimate_tokens(width: int, height: int) -> int:
@@ -35,7 +41,7 @@ def calculate_cost_jpy(tokens: int) -> float:
 
 
 def extract_keyframes(
-    cap: cv2.VideoCapture, threshold: float
+    cap: cv2.VideoCapture, threshold: float, total_frames: int = 0
 ) -> list[tuple[np.ndarray, float]]:
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     keyframes: list[tuple[np.ndarray, float]] = []
@@ -58,9 +64,23 @@ def extract_keyframes(
                 keyframes.append((frame.copy(), timestamp))
                 prev_frame = frame.copy()
 
+        if frame_idx % 30 == 0:
+            total_hint = f"/{total_frames}" if total_frames else ""
+            print(f"[vfr] frame {frame_idx}{total_hint} | keyframes: {len(keyframes)}", file=sys.stderr, flush=True)
+
         frame_idx += 1
 
     return keyframes
+
+
+def subsample_keyframes(
+    keyframes: list[tuple[np.ndarray, float]], max_frames: int
+) -> list[tuple[np.ndarray, float]]:
+    """max_frames を超えた場合、均等サンプリングで削減する。"""
+    if len(keyframes) <= max_frames:
+        return keyframes
+    indices = [round(i * (len(keyframes) - 1) / (max_frames - 1)) for i in range(max_frames)]
+    return [keyframes[i] for i in indices]
 
 
 def build_strip(
@@ -146,28 +166,36 @@ def main() -> None:
     )
     parser.add_argument("video_path", nargs="?", default=None, help="MP4/GIF/MOV ファイルのパス")
     parser.add_argument("--format", choices=["jpeg", "png"], default="jpeg")
-    parser.add_argument("--threshold", type=float, default=30.0)
+    parser.add_argument("--threshold", type=float, default=1.0)
+    parser.add_argument("--max-frames", type=int, default=20, dest="max_frames",
+                        help="最大キーフレーム数（超えた場合は均等サンプリング）")
     args = parser.parse_args()
 
     if args.video_path is None:
-        print(json.dumps({"error": "no_path", "message": "video_path not specified"}))
+        print(json.dumps({"error": "no_path", "message": "video_path not specified"}), flush=True)
         raise SystemExit(2)
 
     cap = cv2.VideoCapture(args.video_path)
     if not cap.isOpened():
-        print(json.dumps({"error": f"Cannot open video: {args.video_path}"}))
+        print(json.dumps({"error": f"Cannot open video: {args.video_path}"}), flush=True)
         raise SystemExit(1)
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     vid_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     vid_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    keyframes = extract_keyframes(cap, args.threshold)
+    print(f"[vfr] opening {args.video_path} ({total_frames} frames, {vid_width}x{vid_height})", file=sys.stderr, flush=True)
+    keyframes = extract_keyframes(cap, args.threshold, total_frames)
     cap.release()
 
     if not keyframes:
-        print(json.dumps({"error": "No frames extracted. Try lowering --threshold."}))
+        print(json.dumps({"error": "No frames extracted. Try lowering --threshold."}), flush=True)
         raise SystemExit(1)
+
+    original_count = len(keyframes)
+    keyframes = subsample_keyframes(keyframes, args.max_frames)
+    if len(keyframes) < original_count:
+        print(f"[vfr] subsampled {original_count} → {len(keyframes)} frames (--max-frames {args.max_frames})", file=sys.stderr, flush=True)
 
     strip = build_strip(keyframes)
 
@@ -183,7 +211,9 @@ def main() -> None:
     stats = build_stats(
         output_path, keyframes, strip, vid_width, vid_height, total_frames, args.threshold
     )
-    print(json.dumps(stats, ensure_ascii=False))
+    stats["subsampled_from"] = original_count if len(keyframes) < original_count else None
+    print(f"[vfr] done: {len(keyframes)} keyframes extracted", file=sys.stderr, flush=True)
+    print(json.dumps(stats, ensure_ascii=False), flush=True)
 
 
 if __name__ == "__main__":
