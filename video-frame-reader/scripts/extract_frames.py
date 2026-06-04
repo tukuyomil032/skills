@@ -12,7 +12,8 @@ from PIL import Image, ImageDraw
 
 FRAME_HEIGHT = 320
 TIMESTAMP_BAR_HEIGHT = 24
-COST_PER_TOKEN_USD = 3.0 / 1_000_000  # Claude Sonnet 4.x pricing
+# Claude Sonnet 4.6 ($3/MTok), Haiku 4.5 ($1/MTok), Opus 4.7 ($5/MTok)
+COST_PER_TOKEN_USD = 3.0 / 1_000_000  # Sonnet 4.6 を基準（実際のモデルに応じて調整）
 JPY_PER_USD = 150.0
 
 
@@ -73,7 +74,7 @@ def build_strip(
 
         w, h = img.size
         new_w = max(1, int(w * target_height / h))
-        img = img.resize((new_w, target_height), Image.LANCZOS)
+        img = img.resize((new_w, target_height), Image.Resampling.LANCZOS)
 
         canvas = Image.new(
             "RGB", (new_w, target_height + TIMESTAMP_BAR_HEIGHT), (30, 30, 30)
