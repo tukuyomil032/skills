@@ -1,3 +1,7 @@
+---
+description: Extract keyframes from MP4/GIF/MOV video files into a single strip image for Claude to analyze. Use when the user shares a video file and wants to understand animation behavior, UI transitions, or visual bugs that are hard to describe with static screenshots.
+---
+
 # video-frame-reader
 
 Extract keyframes from video files (MP4/GIF/MOV) to analyze animations and UI behavior without reading every frame.
@@ -26,8 +30,13 @@ Extract keyframes from video files (MP4/GIF/MOV) to analyze animations and UI be
 ### Step 0 — If no video_path given, search for files
 
 Run:
+
 ```bash
-bash /Users/hosiyomi322/Documents/dev/tukuyomil032-skills/video-frame-reader/scripts/find_video.sh
+fd -e mp4 -e gif -e mov . 2>/dev/null | sort -u | python3 -c "
+import sys, json
+files = [l.strip() for l in sys.stdin if l.strip()]
+print(json.dumps({'files': files, 'count': len(files)}))
+"
 ```
 
 Parse `{"files": [...], "count": N}`. If `count` is 0, tell the user no video files were found and stop. Otherwise present as a numbered list and wait for the user to pick one.
@@ -35,10 +44,10 @@ Parse `{"files": [...], "count": N}`. If `count` is 0, tell the user no video fi
 ### Step 1 — Run extraction script
 
 ```bash
-uv run --project /Users/hosiyomi322/Documents/dev/tukuyomil032-skills/video-frame-reader \
-  python /Users/hosiyomi322/Documents/dev/tukuyomil032-skills/video-frame-reader/scripts/extract_frames.py \
-  <video_path> [--format jpeg] [--threshold 30]
+vfr-extract <video_path> [--format jpeg] [--threshold 30]
 ```
+
+If `vfr-extract` is not found, tell the user to run `uv tool install .` from the video-frame-reader project directory first.
 
 Capture the single JSON line from stdout.
 
