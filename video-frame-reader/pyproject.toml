@@ -12,3 +12,10 @@ dev = [
     "pytest>=8.0.0",
     "numpy>=1.26.0",
 ]
+
+[project.scripts]
+vfr-extract = "scripts.extract_frames:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["scripts*"]
