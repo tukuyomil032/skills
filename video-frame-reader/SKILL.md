@@ -1,4 +1,5 @@
 ---
+name: video-frame-reader
 description: Extract keyframes from MP4/GIF/MOV video files into a single strip image for Claude to analyze. Use when the user shares a video file and wants to understand animation behavior, UI transitions, or visual bugs that are hard to describe with static screenshots.
 ---
 
