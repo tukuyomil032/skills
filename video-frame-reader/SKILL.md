@@ -1,6 +1,7 @@
 ---
 name: video-frame-reader
 description: Extract keyframes from MP4/GIF/MOV video files into a single strip image for Claude to analyze. Use when the user shares a video file and wants to understand animation behavior, UI transitions, or visual bugs that are hard to describe with static screenshots.
+license: MIT
 ---
 
 # video-frame-reader
@@ -16,15 +17,16 @@ Extract keyframes from video files (MP4/GIF/MOV) to analyze animations and UI be
 ## Syntax
 
 ```
-/video-frame-reader [video_path] [--format jpeg|png] [--threshold 10-90]
-/vfr [video_path] [--format jpeg|png] [--threshold 10-90]
+/video-frame-reader [video_path] [--format jpeg|png] [--threshold FLOAT] [--max-frames N]
+/vfr [video_path] [--format jpeg|png] [--threshold FLOAT] [--max-frames N]
 ```
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `video_path` | optional | Path to MP4, GIF, or MOV. **Omit to auto-search.** |
 | `--format` | `jpeg` | `jpeg` (smaller/lossy) or `png` (lossless) |
-| `--threshold` | `30` | Pixel diff % to qualify as a keyframe (lower = more frames) |
+| `--threshold` | `1.0` | % of pixels that must change by more than 10 gray levels to qualify as a keyframe (lower = more frames) |
+| `--max-frames` | `20` | Maximum keyframes in the output strip; excess frames are uniformly subsampled |
 
 ## Instructions for Claude
 
@@ -45,7 +47,7 @@ Parse `{"files": [...], "count": N}`. If `count` is 0, tell the user no video fi
 ### Step 1 — Run extraction script
 
 ```bash
-vfr-extract <video_path> [--format jpeg] [--threshold 30]
+vfr-extract <video_path> [--format jpeg] [--threshold 1.0] [--max-frames 20]
 ```
 
 If `vfr-extract` is not found, tell the user to run `uv tool install .` from the video-frame-reader project directory first.
