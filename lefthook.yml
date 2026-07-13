@@ -1,0 +1,10 @@
+pre-commit:
+  commands:
+    lint-format-ts:
+      glob: 'src/**/*.ts'
+      run: 
+        cd ci-monitoring/packages && \
+        bun run fmt && \
+        bun run lint && \
+        bun run ci
+      stage_fixed: true
