@@ -1,10 +1,6 @@
 pre-commit:
   commands:
     lint-format-ts:
-      glob: 'src/**/*.ts'
-      run: 
-        cd ci-monitoring/packages && \
-        bun run fmt && \
-        bun run lint && \
-        bun run ci
+      glob: 'ci-monitoring/packages/src/**/*.ts'
+      run: zsh -l -c "cd ci-monitoring/packages && bun run fmt && bun run lint && bun run ci"
       stage_fixed: true
