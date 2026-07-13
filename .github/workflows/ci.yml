@@ -10,6 +10,9 @@ jobs:
   ci:
     name: Lint, Typecheck, Test
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ci-monitoring/packages
 
     steps:
       - uses: actions/checkout@v4
