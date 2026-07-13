@@ -1,12 +1,11 @@
 import numpy as np
 import pytest
-from PIL import Image
 
 # これらは Task3 で実装するため、まだ ImportError が出る（RED 状態）
 from scripts.extract_frames import (
+    calculate_cost_jpy,
     compute_frame_diff,
     estimate_tokens,
-    calculate_cost_jpy,
     subsample_keyframes,
 )
 

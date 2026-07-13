@@ -4,3 +4,11 @@ pre-commit:
       glob: 'ci-monitoring/packages/src/**/*.ts'
       run: zsh -l -c "cd ci-monitoring/packages && bun run fmt && bun run lint && bun run ci"
       stage_fixed: true
+    lint-format-python-cc-trace:
+      glob: 'cc-trace/**/*.py'
+      run: zsh -l -c "ruff format cc-trace/scripts && ruff check --fix cc-trace/scripts"
+      stage_fixed: true
+    lint-format-python-video-frame-reader:
+      glob: 'video-frame-reader/**/*.py'
+      run: zsh -l -c "ruff format video-frame-reader/scripts video-frame-reader/tests && ruff check --fix video-frame-reader/scripts video-frame-reader/tests"
+      stage_fixed: true

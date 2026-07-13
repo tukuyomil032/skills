@@ -66,7 +66,11 @@ def extract_keyframes(
 
         if frame_idx % 30 == 0:
             total_hint = f"/{total_frames}" if total_frames else ""
-            print(f"[vfr] frame {frame_idx}{total_hint} | keyframes: {len(keyframes)}", file=sys.stderr, flush=True)
+            print(
+                f"[vfr] frame {frame_idx}{total_hint} | keyframes: {len(keyframes)}",
+                file=sys.stderr,
+                flush=True,
+            )
 
         frame_idx += 1
 
@@ -96,9 +100,7 @@ def build_strip(
         new_w = max(1, int(w * target_height / h))
         img = img.resize((new_w, target_height), Image.Resampling.LANCZOS)
 
-        canvas = Image.new(
-            "RGB", (new_w, target_height + TIMESTAMP_BAR_HEIGHT), (30, 30, 30)
-        )
+        canvas = Image.new("RGB", (new_w, target_height + TIMESTAMP_BAR_HEIGHT), (30, 30, 30))
         canvas.paste(img, (0, 0))
         draw = ImageDraw.Draw(canvas)
         draw.text((4, target_height + 4), f"{timestamp:.2f}s", fill=(220, 220, 220))
@@ -167,8 +169,13 @@ def main() -> None:
     parser.add_argument("video_path", nargs="?", default=None, help="MP4/GIF/MOV ファイルのパス")
     parser.add_argument("--format", choices=["jpeg", "png"], default="jpeg")
     parser.add_argument("--threshold", type=float, default=1.0)
-    parser.add_argument("--max-frames", type=int, default=20, dest="max_frames",
-                        help="最大キーフレーム数（超えた場合は均等サンプリング）")
+    parser.add_argument(
+        "--max-frames",
+        type=int,
+        default=20,
+        dest="max_frames",
+        help="最大キーフレーム数（超えた場合は均等サンプリング）",
+    )
     args = parser.parse_args()
 
     if args.video_path is None:
@@ -184,7 +191,11 @@ def main() -> None:
     vid_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     vid_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    print(f"[vfr] opening {args.video_path} ({total_frames} frames, {vid_width}x{vid_height})", file=sys.stderr, flush=True)
+    print(
+        f"[vfr] opening {args.video_path} ({total_frames} frames, {vid_width}x{vid_height})",
+        file=sys.stderr,
+        flush=True,
+    )
     keyframes = extract_keyframes(cap, args.threshold, total_frames)
     cap.release()
 
@@ -195,7 +206,11 @@ def main() -> None:
     original_count = len(keyframes)
     keyframes = subsample_keyframes(keyframes, args.max_frames)
     if len(keyframes) < original_count:
-        print(f"[vfr] subsampled {original_count} → {len(keyframes)} frames (--max-frames {args.max_frames})", file=sys.stderr, flush=True)
+        print(
+            f"[vfr] subsampled {original_count} → {len(keyframes)} frames (--max-frames {args.max_frames})",
+            file=sys.stderr,
+            flush=True,
+        )
 
     strip = build_strip(keyframes)
 

@@ -8,17 +8,17 @@ and outputs a structured prompt for `claude -p` to generate a cctrace summary.
 """
 
 import json
-import sys
 import re
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
 
 
 def read_transcript(path: str) -> list[dict]:
     """Read and parse transcript.jsonl (JSON Lines format)."""
     entries = []
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -80,11 +80,13 @@ def _extract_content(content, messages: list) -> str:
             if btype == "text":
                 text_parts.append(block.get("text", ""))
             elif btype == "tool_use":
-                messages.append({
-                    "role": "tool_use",
-                    "name": block.get("name", ""),
-                    "input": block.get("input", {}),
-                })
+                messages.append(
+                    {
+                        "role": "tool_use",
+                        "name": block.get("name", ""),
+                        "input": block.get("input", {}),
+                    }
+                )
             # skip: thinking, tool_result, image, etc.
         return "\n".join(t for t in text_parts if t)
     elif isinstance(content, str):
@@ -111,9 +113,11 @@ def extract_file_changes(messages: list[dict]) -> list[str]:
         elif name == "Bash":
             cmd = inp.get("command", "")
             # Look for file operations in bash commands
-            for pat in [r'>\s*([^\s|&;]+\.(py|ts|tsx|js|jsx|rs|swift|go|java|kt|md|json|yml|yaml|sh|css|html))',
-                        r'touch\s+([^\s]+)',
-                        r'tee\s+([^\s]+)']:
+            for pat in [
+                r">\s*([^\s|&;]+\.(py|ts|tsx|js|jsx|rs|swift|go|java|kt|md|json|yml|yaml|sh|css|html))",
+                r"touch\s+([^\s]+)",
+                r"tee\s+([^\s]+)",
+            ]:
                 for m in re.finditer(pat, cmd):
                     path = m.group(1)
                     if path not in seen:
@@ -127,83 +131,79 @@ def extract_file_changes(messages: list[dict]) -> list[str]:
 # Based on real transcript analysis across 5+ projects (tukuyomil032-skills, perch, docky, etc.)
 DECISION_PATTERNS = [
     # === 意思決定・採用 ===
-    r'を採用(?:した|しました|する)|採用しました',
-    r'方針(?:転換|を(?:立て|変更|変え)|が(?:決まり|固まり))',
-    r'方式(?:確定|推奨|を採用|で行く|にした)',
-    r'設計(?:方針|として(?:は)?|にします)',
-    r'アプローチ(?:を取|を採用|として)',
-    r'案[A-Ca-c①②③](?:を採用|推奨|確定|で行く)?|推奨案',
-    r'使うことにした|に決めた|にすることにした|で行くことにした',
-    r'選択しました|決定しました|確定しました|確定した',
-
+    r"を採用(?:した|しました|する)|採用しました",
+    r"方針(?:転換|を(?:立て|変更|変え)|が(?:決まり|固まり))",
+    r"方式(?:確定|推奨|を採用|で行く|にした)",
+    r"設計(?:方針|として(?:は)?|にします)",
+    r"アプローチ(?:を取|を採用|として)",
+    r"案[A-Ca-c①②③](?:を採用|推奨|確定|で行く)?|推奨案",
+    r"使うことにした|に決めた|にすることにした|で行くことにした",
+    r"選択しました|決定しました|確定しました|確定した",
     # === 却下・比較 ===
-    r'却下(?:した|しました|の候補)?|見送り|見送った',
-    r'不採用(?:の|だ|にした)|後押し材料',
-    r'やめました|やめた|辞めてください',
-    r'ダサい|ダサくて',                           # ユーザー固有の審美的却下
-    r'合わない|向いていない|合いません|向いてない',
-    r'使わない|使いません|使用しない',
-    r'〜より.*方が|より.*方式.*が堅牢|より.*の方が',
-
+    r"却下(?:した|しました|の候補)?|見送り|見送った",
+    r"不採用(?:の|だ|にした)|後押し材料",
+    r"やめました|やめた|辞めてください",
+    r"ダサい|ダサくて",  # ユーザー固有の審美的却下
+    r"合わない|向いていない|合いません|向いてない",
+    r"使わない|使いません|使用しない",
+    r"〜より.*方が|より.*方式.*が堅牢|より.*の方が",
     # === 理由・根拠 ===
-    r'なぜこれを言うかというと|→なぜ',             # ユーザー特徴パターン（特異性高）
-    r'なぜなら[、。\s]|なぜかというと',
-    r'根拠(?:が|を|として|は|になる)',
-    r'懸念(?:が|を|した|点|として)',
-    r'(?:が|は)ポイント|重要なポイント|ポイントとして',
-    r'これを防ぐため|を防ぐために|防ぐため',
-    r'というのも[、。\s]',
-    r'のため[、。\s]|ためです[。\s]|ためになっています',
-    r'理由(?:は|として|が)|という理由',
-    r'の観点から|観点として',
-    r'おかげで|ことで(?:実現|解決|対応)',
-
+    r"なぜこれを言うかというと|→なぜ",  # ユーザー特徴パターン（特異性高）
+    r"なぜなら[、。\s]|なぜかというと",
+    r"根拠(?:が|を|として|は|になる)",
+    r"懸念(?:が|を|した|点|として)",
+    r"(?:が|は)ポイント|重要なポイント|ポイントとして",
+    r"これを防ぐため|を防ぐために|防ぐため",
+    r"というのも[、。\s]",
+    r"のため[、。\s]|ためです[。\s]|ためになっています",
+    r"理由(?:は|として|が)|という理由",
+    r"の観点から|観点として",
+    r"おかげで|ことで(?:実現|解決|対応)",
     # === 制約・要件発見 ===
-    r'非対応|使用不可',
-    r'権限がない|権限がないため',
-    r'制限されて|制限があ(?:り|る)|の制限(?:が|として)',
-    r'着手できない|着手できないため',
-    r'hook.*使えない|から使用不可|hook.*使用不可',
-    r'entitlement.*必要|entitlement.*が必要',
-    r'が必要です|が必要(?:な|になっ|とな)',
-    r'しなければ(?:なら|いけ)|できません|不可能',
-    r'という制約|制約として|制約上',
-
+    r"非対応|使用不可",
+    r"権限がない|権限がないため",
+    r"制限されて|制限があ(?:り|る)|の制限(?:が|として)",
+    r"着手できない|着手できないため",
+    r"hook.*使えない|から使用不可|hook.*使用不可",
+    r"entitlement.*必要|entitlement.*が必要",
+    r"が必要です|が必要(?:な|になっ|とな)",
+    r"しなければ(?:なら|いけ)|できません|不可能",
+    r"という制約|制約として|制約上",
     # === 技術検討 ===
-    r'アーキテクチャ(?:案|判断|を)?|アーキ(?:判断|決定)',
-    r'を検討|と比較(?:して|した)|比較検討',
-    r'悩んだ|迷った|検討した|調べた結果',
-    r'選択肢(?:として|が|は)|候補(?:として|が|は)',
-    r'トレードオフ|trade.?off',
-
+    r"アーキテクチャ(?:案|判断|を)?|アーキ(?:判断|決定)",
+    r"を検討|と比較(?:して|した)|比較検討",
+    r"悩んだ|迷った|検討した|調べた結果",
+    r"選択肢(?:として|が|は)|候補(?:として|が|は)",
+    r"トレードオフ|trade.?off",
     # === English (high-specificity only) ===
-    r'went with|opted for|decided to use|chose to use',
-    r'instead of|rather than',
-    r'rejected|avoid(?:ing)?|not using|skip(?:ped|ping)?',
-    r'because of|due to|in order to|so that',
-    r'trade.?offs?|alternative|candidate',
-    r'constraint|requirement|limitation|cannot|impossible',
-    r'the reason(?:\s+is|\s+was|:)|reason for',
-
+    r"went with|opted for|decided to use|chose to use",
+    r"instead of|rather than",
+    r"rejected|avoid(?:ing)?|not using|skip(?:ped|ping)?",
+    r"because of|due to|in order to|so that",
+    r"trade.?offs?|alternative|candidate",
+    r"constraint|requirement|limitation|cannot|impossible",
+    r"the reason(?:\s+is|\s+was|:)|reason for",
     # === ユーザー固有の口語パターン (tukuyomil032) ===
-    r'感じで(?:行き|いき|進め)',                   # 「感じで行きたい」
-    r'一旦(?:次|これ|ここ|先に)',                   # 作業区切り指示
-    r'そもそも[、。\s]',                            # 前提への立ち返り
-    r'なんで.*んです(?:か|よ)?|なんで.*のか',      # 不満・確認
-    r'ちゃんと.*(?:読め|調べ|確認)',               # 要求の強調
-    r'普通に.*(?:したい|して|できる)',
+    r"感じで(?:行き|いき|進め)",  # 「感じで行きたい」
+    r"一旦(?:次|これ|ここ|先に)",  # 作業区切り指示
+    r"そもそも[、。\s]",  # 前提への立ち返り
+    r"なんで.*んです(?:か|よ)?|なんで.*のか",  # 不満・確認
+    r"ちゃんと.*(?:読め|調べ|確認)",  # 要求の強調
+    r"普通に.*(?:したい|して|できる)",
 ]
 
 COMPILED_PATTERNS = [re.compile(p, re.IGNORECASE) for p in DECISION_PATTERNS]
 
 TODO_PATTERNS = [
-    re.compile(r'TODO|FIXME|HACK|XXX', re.IGNORECASE),
-    re.compile(r'次(?:のフェーズ|回|のステップ|の実装|のタスク|で)|後で|後回し|将来', re.IGNORECASE),
-    re.compile(r'未解決|未実装|要対応|要確認|要検討|要修正', re.IGNORECASE),
-    re.compile(r'next step|later|follow.?up|pending|to.?do', re.IGNORECASE),
-    re.compile(r'Phase \d+|フェーズ\d+|第\d+フェーズ', re.IGNORECASE),
-    re.compile(r'一旦(?:次|ここまで|保留)|一旦.*後で', re.IGNORECASE),
-    re.compile(r'既知の(?:制限|問題|課題)|known issue', re.IGNORECASE),
+    re.compile(r"TODO|FIXME|HACK|XXX", re.IGNORECASE),
+    re.compile(
+        r"次(?:のフェーズ|回|のステップ|の実装|のタスク|で)|後で|後回し|将来", re.IGNORECASE
+    ),
+    re.compile(r"未解決|未実装|要対応|要確認|要検討|要修正", re.IGNORECASE),
+    re.compile(r"next step|later|follow.?up|pending|to.?do", re.IGNORECASE),
+    re.compile(r"Phase \d+|フェーズ\d+|第\d+フェーズ", re.IGNORECASE),
+    re.compile(r"一旦(?:次|ここまで|保留)|一旦.*後で", re.IGNORECASE),
+    re.compile(r"既知の(?:制限|問題|課題)|known issue", re.IGNORECASE),
 ]
 
 
@@ -244,12 +244,16 @@ def extract_key_segments(messages: list[dict], max_chars: int = 6000) -> str:
 def get_git_summary(cwd: str) -> str:
     """Get a brief git log/diff summary for context."""
     import subprocess
+
     result_parts = []
 
     try:
         log = subprocess.run(
             ["git", "log", "--oneline", "-10", "--no-merges"],
-            cwd=cwd, capture_output=True, text=True, timeout=5
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if log.returncode == 0 and log.stdout.strip():
             result_parts.append("Recent commits:\n" + log.stdout.strip())
@@ -259,7 +263,10 @@ def get_git_summary(cwd: str) -> str:
     try:
         diff = subprocess.run(
             ["git", "diff", "--name-status", "HEAD~1", "HEAD"],
-            cwd=cwd, capture_output=True, text=True, timeout=5
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if diff.returncode == 0 and diff.stdout.strip():
             result_parts.append("Latest diff (files):\n" + diff.stdout.strip()[:800])
@@ -279,7 +286,9 @@ def build_prompt(
     project_name = Path(cwd).name
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    file_list = "\n".join(f"  - {f}" for f in file_changes[:30]) if file_changes else "  (none detected)"
+    file_list = (
+        "\n".join(f"  - {f}" for f in file_changes[:30]) if file_changes else "  (none detected)"
+    )
 
     git_section = f"\n\n## Git Changes\n{git_summary}" if git_summary else ""
 
@@ -339,7 +348,9 @@ Output ONLY the above markdown. Do not wrap in code fences."""
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: process_transcript.py <transcript_path> <cwd> [detail_level]", file=sys.stderr)
+        print(
+            "Usage: process_transcript.py <transcript_path> <cwd> [detail_level]", file=sys.stderr
+        )
         sys.exit(1)
 
     transcript_path = sys.argv[1]
