@@ -26,10 +26,10 @@ jobs:
         run: bun install
 
       - name: Format check
-        run: bun run fmt:check
+        run: bun run fmt
 
       - name: Lint
-        run: bun run lint:check
+        run: bun run lint
 
-      - name: Typecheck
-        run: bunx tsc --noEmit
+      - name: Build & Typecheck
+        run: bun run ci
