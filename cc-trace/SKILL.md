@@ -1,5 +1,5 @@
 ---
-name: cctrace
+name: cc-trace
 description: >
   Generates a Context Snapshot (Why/rationale + file changes) before /compact to preserve
   important decision history across Claude Code sessions. Use when running /compact or when

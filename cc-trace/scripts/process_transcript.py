@@ -33,34 +33,63 @@ def read_transcript(path: str) -> list[dict]:
 
 
 def extract_messages(entries: list[dict]) -> list[dict]:
-    """Extract human/assistant messages from transcript entries."""
+    """Extract human/assistant messages from transcript entries.
+
+    Handles two formats:
+    - Nested: entry["type"] in ("user", "assistant"), message in entry["message"]
+    - Flat: entry["role"] in ("user", "assistant"), content in entry["content"]
+    """
     messages = []
     for entry in entries:
-        # Handle various transcript formats
-        if isinstance(entry, dict):
-            role = entry.get("role", "")
+        if not isinstance(entry, dict):
+            continue
+
+        entry_type = entry.get("type", "")
+
+        # --- Nested format (Claude Code transcript.jsonl) ---
+        # entry["type"] = "user" | "assistant", actual message is in entry["message"]
+        if entry_type in ("user", "assistant") and "message" in entry:
+            msg = entry["message"]
+            if not isinstance(msg, dict):
+                continue
+            role = msg.get("role", entry_type)
+            content = msg.get("content", "")
+            content = _extract_content(content, messages)
+            if content:
+                messages.append({"role": role, "content": content})
+
+        # --- Flat format (legacy / SDK format) ---
+        elif entry.get("role") in ("user", "human", "assistant"):
+            role = entry["role"]
             content = entry.get("content", "")
-
-            # Handle content as list of blocks
-            if isinstance(content, list):
-                text_parts = []
-                for block in content:
-                    if isinstance(block, dict):
-                        if block.get("type") == "text":
-                            text_parts.append(block.get("text", ""))
-                        elif block.get("type") == "tool_use":
-                            # Extract tool use info
-                            messages.append({
-                                "role": "tool_use",
-                                "name": block.get("name", ""),
-                                "input": block.get("input", {}),
-                            })
-                content = "\n".join(text_parts)
-
-            if role in ("user", "human", "assistant") and content:
-                messages.append({"role": role, "content": str(content)})
+            content = _extract_content(content, messages)
+            if content:
+                messages.append({"role": role, "content": content})
 
     return messages
+
+
+def _extract_content(content, messages: list) -> str:
+    """Flatten content blocks to text, side-loading tool_use entries."""
+    if isinstance(content, list):
+        text_parts = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            btype = block.get("type", "")
+            if btype == "text":
+                text_parts.append(block.get("text", ""))
+            elif btype == "tool_use":
+                messages.append({
+                    "role": "tool_use",
+                    "name": block.get("name", ""),
+                    "input": block.get("input", {}),
+                })
+            # skip: thinking, tool_result, image, etc.
+        return "\n".join(t for t in text_parts if t)
+    elif isinstance(content, str):
+        return content
+    return ""
 
 
 def extract_file_changes(messages: list[dict]) -> list[str]:
@@ -95,29 +124,86 @@ def extract_file_changes(messages: list[dict]) -> list[str]:
 
 
 # Keywords indicating decision-making in Japanese and English
+# Based on real transcript analysis across 5+ projects (tukuyomil032-skills, perch, docky, etc.)
 DECISION_PATTERNS = [
-    # Japanese
-    r'採用|選択|選ぶ|決定|使用する|使うことにした|にした|にします',
-    r'却下|見送り|やめる|やめた|使わない|不採用|合わない|向いていない',
-    r'理由|なぜなら|なので|ため|から|ことで|おかげで',
-    r'代わりに|別の|より|に比べて|と比較|よりも',
-    r'検討|考えた|悩んだ|迷った|比較|調べた',
-    r'制約|要件|条件|必要|しなければ|できない|不可能',
-    # English
-    r'adopt|chose|decided|using|went with|picked|selected',
-    r'reject|avoid|not using|instead of|rather than|skip',
-    r'because|since|therefore|reason|due to|in order to',
-    r'trade.?off|alternative|option|candidate|comparison',
-    r'constraint|requirement|limitation|must|cannot|impossible',
+    # === 意思決定・採用 ===
+    r'を採用(?:した|しました|する)|採用しました',
+    r'方針(?:転換|を(?:立て|変更|変え)|が(?:決まり|固まり))',
+    r'方式(?:確定|推奨|を採用|で行く|にした)',
+    r'設計(?:方針|として(?:は)?|にします)',
+    r'アプローチ(?:を取|を採用|として)',
+    r'案[A-Ca-c①②③](?:を採用|推奨|確定|で行く)?|推奨案',
+    r'使うことにした|に決めた|にすることにした|で行くことにした',
+    r'選択しました|決定しました|確定しました|確定した',
+
+    # === 却下・比較 ===
+    r'却下(?:した|しました|の候補)?|見送り|見送った',
+    r'不採用(?:の|だ|にした)|後押し材料',
+    r'やめました|やめた|辞めてください',
+    r'ダサい|ダサくて',                           # ユーザー固有の審美的却下
+    r'合わない|向いていない|合いません|向いてない',
+    r'使わない|使いません|使用しない',
+    r'〜より.*方が|より.*方式.*が堅牢|より.*の方が',
+
+    # === 理由・根拠 ===
+    r'なぜこれを言うかというと|→なぜ',             # ユーザー特徴パターン（特異性高）
+    r'なぜなら[、。\s]|なぜかというと',
+    r'根拠(?:が|を|として|は|になる)',
+    r'懸念(?:が|を|した|点|として)',
+    r'(?:が|は)ポイント|重要なポイント|ポイントとして',
+    r'これを防ぐため|を防ぐために|防ぐため',
+    r'というのも[、。\s]',
+    r'のため[、。\s]|ためです[。\s]|ためになっています',
+    r'理由(?:は|として|が)|という理由',
+    r'の観点から|観点として',
+    r'おかげで|ことで(?:実現|解決|対応)',
+
+    # === 制約・要件発見 ===
+    r'非対応|使用不可',
+    r'権限がない|権限がないため',
+    r'制限されて|制限があ(?:り|る)|の制限(?:が|として)',
+    r'着手できない|着手できないため',
+    r'hook.*使えない|から使用不可|hook.*使用不可',
+    r'entitlement.*必要|entitlement.*が必要',
+    r'が必要です|が必要(?:な|になっ|とな)',
+    r'しなければ(?:なら|いけ)|できません|不可能',
+    r'という制約|制約として|制約上',
+
+    # === 技術検討 ===
+    r'アーキテクチャ(?:案|判断|を)?|アーキ(?:判断|決定)',
+    r'を検討|と比較(?:して|した)|比較検討',
+    r'悩んだ|迷った|検討した|調べた結果',
+    r'選択肢(?:として|が|は)|候補(?:として|が|は)',
+    r'トレードオフ|trade.?off',
+
+    # === English (high-specificity only) ===
+    r'went with|opted for|decided to use|chose to use',
+    r'instead of|rather than',
+    r'rejected|avoid(?:ing)?|not using|skip(?:ped|ping)?',
+    r'because of|due to|in order to|so that',
+    r'trade.?offs?|alternative|candidate',
+    r'constraint|requirement|limitation|cannot|impossible',
+    r'the reason(?:\s+is|\s+was|:)|reason for',
+
+    # === ユーザー固有の口語パターン (tukuyomil032) ===
+    r'感じで(?:行き|いき|進め)',                   # 「感じで行きたい」
+    r'一旦(?:次|これ|ここ|先に)',                   # 作業区切り指示
+    r'そもそも[、。\s]',                            # 前提への立ち返り
+    r'なんで.*んです(?:か|よ)?|なんで.*のか',      # 不満・確認
+    r'ちゃんと.*(?:読め|調べ|確認)',               # 要求の強調
+    r'普通に.*(?:したい|して|できる)',
 ]
 
 COMPILED_PATTERNS = [re.compile(p, re.IGNORECASE) for p in DECISION_PATTERNS]
 
 TODO_PATTERNS = [
     re.compile(r'TODO|FIXME|HACK|XXX', re.IGNORECASE),
-    re.compile(r'次(のフェーズ|回|のステップ|の実装|で)|後で|後回し|将来', re.IGNORECASE),
-    re.compile(r'未解決|未実装|要対応|要確認|要検討', re.IGNORECASE),
-    re.compile(r'next step|later|follow.?up|pending|to do', re.IGNORECASE),
+    re.compile(r'次(?:のフェーズ|回|のステップ|の実装|のタスク|で)|後で|後回し|将来', re.IGNORECASE),
+    re.compile(r'未解決|未実装|要対応|要確認|要検討|要修正', re.IGNORECASE),
+    re.compile(r'next step|later|follow.?up|pending|to.?do', re.IGNORECASE),
+    re.compile(r'Phase \d+|フェーズ\d+|第\d+フェーズ', re.IGNORECASE),
+    re.compile(r'一旦(?:次|ここまで|保留)|一旦.*後で', re.IGNORECASE),
+    re.compile(r'既知の(?:制限|問題|課題)|known issue', re.IGNORECASE),
 ]
 
 
@@ -220,9 +306,8 @@ def build_prompt(
 
 ---
 
-Generate a cctrace Context Snapshot in this exact markdown format:
+Generate a cctrace Context Snapshot in this exact format. Output raw markdown — NO code fences, NO ```markdown wrapper, NO preamble:
 
-```markdown
 ---
 generated: {now}
 project: {project_name}
@@ -246,9 +331,8 @@ project: {project_name}
 
 ## 未解決の課題・次のステップ
 - [ ] (open items, deferred work, known issues)
-```
 
-Output ONLY the markdown content. No explanation, no preamble."""
+Output ONLY the above markdown. Do not wrap in code fences."""
 
     return prompt
 
