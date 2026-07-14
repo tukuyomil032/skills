@@ -89,7 +89,7 @@ fi
 
 # Call claude CLI to generate summary
 # Write to archive first, then copy to latest
-if echo "$PROMPT" | claude -p --model "$MODEL" > "$ARCHIVE_FILE" 2>/dev/null; then
+if echo "$PROMPT" | claude -p --model "$MODEL" --max-tokens 2048 > "$ARCHIVE_FILE" 2>/dev/null; then
     if [ -s "$ARCHIVE_FILE" ]; then
         cp "$ARCHIVE_FILE" "$LATEST_FILE"
     fi
