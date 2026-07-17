@@ -30,6 +30,15 @@ class DistillTests(unittest.TestCase):
     def test_zero_limit_returns_no_evidence(self) -> None:
         self.assertEqual(MODULE.distill_lines(["ERROR"], 0), [])
 
+    def test_reserves_space_for_latest_tail_when_evidence_fills_limit(self) -> None:
+        self.assertEqual(
+            MODULE.distill_lines(["ERROR one", "FAIL two", "latest tail"], 2),
+            [
+                {"line_number": 1, "text": "ERROR one"},
+                {"line_number": 3, "text": "latest tail"},
+            ],
+        )
+
 
 class TaskWatchCliTests(unittest.TestCase):
     def run_watch(self, *args: str) -> subprocess.CompletedProcess[str]:

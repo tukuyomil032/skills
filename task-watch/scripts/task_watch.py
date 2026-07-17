@@ -22,8 +22,13 @@ def distill_lines(lines: list[str], limit: int) -> list[dict[str, int | str]]:
     if limit <= 0:
         return []
 
-    selected: list[tuple[int, str]] = []
-    seen_text: set[str] = set()
+    if not lines:
+        return []
+    if limit == 1:
+        return [{"line_number": len(lines), "text": lines[-1]}]
+
+    selected: list[tuple[int, str]] = [(len(lines), lines[-1])]
+    seen_text: set[str] = {lines[-1]}
     for line_number, line in enumerate(lines, start=1):
         if EVIDENCE.search(line) and line not in seen_text:
             selected.append((line_number, line))
