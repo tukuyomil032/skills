@@ -15,3 +15,7 @@ python3 scripts/check_command.py --enforce < command.txt
 ```
 
 決定的な JSON にある各 token を、提示された replacement へ置き換える。
+
+対応文法は、単純コマンド、代入、リダイレクトと heredoc、パイプラインとリスト区切り、`if` / `while` / `until` のコマンド位置、グループ、関数定義、`sudo` / `env` / `command` / `time` ラッパー、command / backtick / process substitution である。算術展開はデータとして扱う。
+
+JSON には常に `status`、`mode`、`requested_mode`、`indeterminate`、`violations` が入る。`case`、`for`、`select`、`coproc`、`[[...]]`、here-string、parameter expansion などの対応外文法では、`status` を `indeterminate`、`mode` を `advisory` に戻し、`--enforce` 指定時もブロックしない。手動確認へ切り替える。このチェッカーは完全な Bash パーサーではない。

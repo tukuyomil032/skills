@@ -15,3 +15,7 @@ python3 scripts/check_command.py --enforce < command.txt
 ```
 
 Read the deterministic JSON and replace each reported token with its suggested utility.
+
+Supported grammar includes simple commands, assignments, redirections and heredocs, pipelines and list separators, `if`/`while`/`until` command positions, groups, function definitions, the `sudo`/`env`/`command`/`time` wrappers, and command, backtick, or process substitutions. Arithmetic expansion is treated as data.
+
+The JSON always includes `status`, `mode`, `requested_mode`, `indeterminate`, and `violations`. For unsupported grammar such as `case`, `for`, `select`, `coproc`, `[[...]]`, here-strings, or parameter expansion, `status` is `indeterminate`, `mode` falls back to `advisory`, and the checker never blocks even when `--enforce` was requested. Treat that result as requiring manual review; this checker is not a complete Bash parser.

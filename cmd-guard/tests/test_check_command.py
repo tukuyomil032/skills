@@ -82,6 +82,30 @@ class CommandGuardTests(unittest.TestCase):
             [{"replacement": "bat", "token": "cat"}],
         )
 
+    def test_handles_final_parser_boundary_cases(self) -> None:
+        quoted_heredoc = 'echo "<<EOF"\ngrep actual file'
+        self.assertEqual(
+            self.payload(self.run_guard(quoted_heredoc))["violations"],
+            [{"replacement": "rg", "token": "grep"}],
+        )
+        self.assertEqual(
+            self.payload(self.run_guard("grep(){ cat file; }"))["violations"],
+            [{"replacement": "bat", "token": "cat"}],
+        )
+        self.assertEqual(
+            self.payload(self.run_guard("echo <(grep actual file)"))["violations"],
+            [{"replacement": "rg", "token": "grep"}],
+        )
+        self.assertEqual(self.payload(self.run_guard("echo $((grep + 1))"))["violations"], [])
+
+    def test_unsupported_grammar_is_indeterminate_and_never_enforced(self) -> None:
+        result = self.run_guard("--enforce", "case $x in y) grep value;; esac")
+        payload = self.payload(result)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(payload["status"], "indeterminate")
+        self.assertEqual(payload["mode"], "advisory")
+        self.assertTrue(payload["indeterminate"])
+
     def test_allows_replacement_commands(self) -> None:
         result = self.run_guard("rg value file | fd '*.py'; bat file; eza; dust")
         self.assertEqual(self.payload(result)["violations"], [])

@@ -24,8 +24,9 @@ OPTION_ARGUMENTS = {
     },
 }
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-HEREDOC = re.compile(r"<<-?\s*(?:'([^']+)'|\"([^\"]+)\"|([A-Za-z_][A-Za-z0-9_]*))")
 PUNCTUATION = "<>|&;(){}!\n"
+OPERATORS = ("<<<", "<<-", "&&", "||", ";;", "<<", ">>", "<&", ">&", "<>", ">|", "()")
+UNSUPPORTED_WORDS = {"case", "coproc", "esac", "for", "select"}
 
 
 @dataclass(frozen=True)
@@ -33,27 +34,6 @@ class ShellToken:
     value: str
     quoted: bool = False
     substitutions: tuple[str, ...] = ()
-
-
-def strip_heredoc_bodies(command: str) -> str:
-    output: list[str] = []
-    pending: list[tuple[str, bool]] = []
-    for line in command.splitlines(keepends=True):
-        if pending:
-            delimiter, strip_tabs = pending[0]
-            candidate = line.rstrip("\r\n")
-            if strip_tabs:
-                candidate = candidate.lstrip("\t")
-            if candidate == delimiter:
-                pending.pop(0)
-            output.append("\n" if line.endswith(("\n", "\r")) else "")
-            continue
-        output.append(line)
-        for match in HEREDOC.finditer(line):
-            delimiter = next(group for group in match.groups() if group is not None)
-            operator = match.group(0).split(delimiter, 1)[0]
-            pending.append((delimiter, "<<-" in operator))
-    return "".join(output)
 
 
 def extract_backtick(command: str, start: int) -> tuple[str, int]:
@@ -71,8 +51,8 @@ def extract_backtick(command: str, start: int) -> tuple[str, int]:
     raise ValueError("unterminated backtick command substitution")
 
 
-def extract_dollar_parens(command: str, start: int) -> tuple[str, int]:
-    index = start + 2
+def extract_parenthesized(command: str, open_index: int) -> tuple[str, int]:
+    index = open_index + 1
     depth = 1
     quote = ""
     content: list[str] = []
@@ -105,8 +85,67 @@ def extract_dollar_parens(command: str, start: int) -> tuple[str, int]:
     raise ValueError("unterminated $(...) command substitution")
 
 
+def extract_arithmetic(command: str, start: int) -> tuple[str, int]:
+    index = start + 3
+    depth = 1
+    content: list[str] = []
+    while index < len(command):
+        if command[index] == "\\" and index + 1 < len(command):
+            content.extend(command[index:index + 2])
+            index += 2
+            continue
+        if command[index] == "(":
+            depth += 1
+            content.append(command[index])
+            index += 1
+            continue
+        if command.startswith("))", index):
+            depth -= 1
+            if depth == 0:
+                return "".join(content), index + 2
+            content.append(")")
+            index += 1
+            continue
+        content.append(command[index])
+        index += 1
+    raise ValueError("unterminated arithmetic expansion")
+
+
+def remove_heredoc_bodies(tokens: list[ShellToken]) -> list[ShellToken]:
+    output: list[ShellToken] = []
+    pending: list[str] = []
+    expect_delimiter = False
+    in_body = False
+    body_line: list[ShellToken] = []
+
+    for token in tokens:
+        if in_body:
+            if token.value == "\n":
+                if len(body_line) == 1 and body_line[0].value == pending[0]:
+                    pending.pop(0)
+                    if not pending:
+                        in_body = False
+                body_line.clear()
+                output.append(token)
+            else:
+                body_line.append(token)
+            continue
+
+        output.append(token)
+        if expect_delimiter:
+            pending.append(token.value)
+            expect_delimiter = False
+        elif token.value in {"<<", "<<-"} and not token.quoted:
+            expect_delimiter = True
+        elif token.value == "\n" and pending:
+            in_body = True
+
+    if expect_delimiter or pending:
+        raise ValueError("unterminated heredoc")
+    return output
+
+
 def tokenize(command: str) -> list[ShellToken]:
-    command = strip_heredoc_bodies(command)
     tokens: list[ShellToken] = []
     characters: list[str] = []
     substitutions: list[str] = []
@@ -150,8 +189,11 @@ def tokenize(command: str) -> list[ShellToken]:
                     substitution, index = extract_backtick(command, index)
                     substitutions.append(substitution)
                     characters.append("__cmdsub__")
+                elif command.startswith("$((", index):
+                    arithmetic, index = extract_arithmetic(command, index)
+                    characters.append(f"__arithmetic_{len(arithmetic)}__")
                 elif command.startswith("$(", index):
-                    substitution, index = extract_dollar_parens(command, index)
+                    substitution, index = extract_parenthesized(command, index + 1)
                     substitutions.append(substitution)
                     characters.append("__cmdsub__")
                 else:
@@ -171,23 +213,30 @@ def tokenize(command: str) -> list[ShellToken]:
             substitutions.append(substitution)
             characters.append("__cmdsub__")
             continue
+        if command.startswith("$((", index):
+            arithmetic, index = extract_arithmetic(command, index)
+            characters.append(f"__arithmetic_{len(arithmetic)}__")
+            continue
         if command.startswith("$(", index):
-            substitution, index = extract_dollar_parens(command, index)
+            substitution, index = extract_parenthesized(command, index + 1)
             substitutions.append(substitution)
             characters.append("__cmdsub__")
             continue
+        if character in "<>" and index + 1 < len(command) and command[index + 1] == "(":
+            substitution, index = extract_parenthesized(command, index + 1)
+            substitutions.append(substitution)
+            characters.append("__process_sub__")
+            continue
         if character in PUNCTUATION:
             flush()
-            end = index + 1
-            while end < len(command) and command[end] in PUNCTUATION:
-                end += 1
-            tokens.append(ShellToken(command[index:end]))
-            index = end
+            operator = next((item for item in OPERATORS if command.startswith(item, index)), character)
+            tokens.append(ShellToken(operator))
+            index += len(operator)
             continue
         characters.append(character)
         index += 1
     flush()
-    return tokens
+    return remove_heredoc_bodies(tokens)
 
 
 def is_separator(token: str) -> bool:
@@ -270,6 +319,21 @@ def check_command(command: str) -> list[dict[str, str]]:
     return violations
 
 
+def unsupported_reasons(command: str) -> list[str]:
+    tokens = tokenize(command)
+    reasons: set[str] = set()
+    for index, token in enumerate(tokens):
+        if not token.quoted and token.value in UNSUPPORTED_WORDS:
+            reasons.add(f"unsupported control grammar: {token.value}")
+        if not token.quoted and token.value in {"[[", "]]", "<<<"}:
+            reasons.add(f"unsupported shell operator: {token.value}")
+        if token.value == "$" and index + 1 < len(tokens) and tokens[index + 1].value == "{":
+            reasons.add("unsupported parameter expansion")
+        for substitution in token.substitutions:
+            reasons.update(unsupported_reasons(substitution))
+    return sorted(reasons)
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--enforce", action="store_true")
@@ -280,14 +344,32 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     command = args.command if args.command is not None else sys.stdin.read()
+    requested_mode = "enforce" if args.enforce else "advisory"
     try:
         violations = check_command(command)
-        payload = {"command": command, "mode": "enforce" if args.enforce else "advisory", "violations": violations}
+        indeterminate = unsupported_reasons(command)
+        payload = {
+            "command": command,
+            "indeterminate": indeterminate,
+            "mode": "advisory" if indeterminate else requested_mode,
+            "requested_mode": requested_mode,
+            "status": "indeterminate" if indeterminate else ("violations" if violations else "clear"),
+            "violations": violations,
+        }
     except ValueError as error:
         violations = []
-        payload = {"command": command, "error": str(error), "mode": "enforce" if args.enforce else "advisory", "violations": violations}
+        indeterminate = []
+        payload = {
+            "command": command,
+            "error": str(error),
+            "indeterminate": indeterminate,
+            "mode": requested_mode,
+            "requested_mode": requested_mode,
+            "status": "error",
+            "violations": violations,
+        }
     print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
-    return 2 if args.enforce and (payload.get("error") or violations) else 0
+    return 2 if args.enforce and not indeterminate and (payload.get("error") or violations) else 0
 
 
 if __name__ == "__main__":
