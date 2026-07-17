@@ -1,0 +1,4 @@
+interface:
+  display_name: "Command Guard"
+  short_description: "Check shell commands for prohibited utility usage"
+  default_prompt: "Use $cmd-guard to check this shell command before running it."
