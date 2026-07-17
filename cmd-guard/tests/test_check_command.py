@@ -172,6 +172,44 @@ class CommandGuardTests(unittest.TestCase):
         command = "bat <<$(grep)\nliteral body\n$(grep)"
         self.assertEqual(self.payload(self.run_guard(command))["violations"], [])
 
+    def test_heredoc_hash_lines_still_expand_substitutions(self) -> None:
+        command = "bat <<EOF\n# $(grep nested file) and `find .`\nEOF"
+        self.assertEqual(
+            self.payload(self.run_guard(command))["violations"],
+            [
+                {"replacement": "rg", "token": "grep"},
+                {"replacement": "fd", "token": "find"},
+            ],
+        )
+
+    def test_leading_redirection_targets_scan_nested_commands(self) -> None:
+        command = ">$(grep output file) < <(find .) bat file"
+        self.assertEqual(
+            self.payload(self.run_guard(command))["violations"],
+            [
+                {"replacement": "rg", "token": "grep"},
+                {"replacement": "fd", "token": "find"},
+            ],
+        )
+
+    def test_macos_time_output_option_consumes_value(self) -> None:
+        result = self.run_guard("/usr/bin/time -o timing.txt grep needle file")
+        self.assertEqual(
+            self.payload(result)["violations"],
+            [{"replacement": "rg", "token": "grep"}],
+        )
+
+    def test_nested_arithmetic_parentheses_do_not_hide_following_command(self) -> None:
+        result = self.run_guard("echo $((func(1) + 2)); cat file")
+        self.assertEqual(
+            self.payload(result)["violations"],
+            [{"replacement": "bat", "token": "cat"}],
+        )
+
+    def test_double_quote_backslash_before_plain_character_is_preserved(self) -> None:
+        result = self.run_guard('"g\\rep" needle file')
+        self.assertEqual(self.payload(result)["violations"], [])
+
     def test_allows_replacement_commands(self) -> None:
         result = self.run_guard("rg value file | fd '*.py'; bat file; eza; dust")
         self.assertEqual(self.payload(result)["violations"], [])

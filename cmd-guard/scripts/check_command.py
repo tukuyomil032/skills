@@ -22,6 +22,7 @@ OPTION_ARGUMENTS = {
         "-p", "--prompt", "-R", "--chroot", "-r", "--role", "-t", "--type",
         "-T", "--command-timeout", "-u", "--user",
     },
+    "time": {"-f", "--format", "-o", "--output"},
 }
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 PUNCTUATION = "<>|&;(){}!\n"
@@ -34,6 +35,7 @@ class ShellToken:
     value: str
     quoted: bool = False
     substitutions: tuple[str, ...] = ()
+    comment: bool = False
 
 
 def extract_backtick(command: str, start: int) -> tuple[str, int]:
@@ -87,7 +89,7 @@ def extract_parenthesized(command: str, open_index: int) -> tuple[str, int]:
 
 def extract_arithmetic(command: str, start: int) -> tuple[str, int]:
     index = start + 3
-    depth = 1
+    depth = 0
     content: list[str] = []
     while index < len(command):
         if command[index] == "\\" and index + 1 < len(command):
@@ -99,13 +101,14 @@ def extract_arithmetic(command: str, start: int) -> tuple[str, int]:
             content.append(command[index])
             index += 1
             continue
-        if command.startswith("))", index):
-            depth -= 1
-            if depth == 0:
+        if command[index] == ")":
+            if depth > 0:
+                depth -= 1
+                content.append(")")
+                index += 1
+                continue
+            if command.startswith("))", index):
                 return "".join(content), index + 2
-            content.append(")")
-            index += 1
-            continue
         content.append(command[index])
         index += 1
     raise ValueError("unterminated arithmetic expansion")
@@ -176,8 +179,17 @@ def tokenize(command: str) -> list[ShellToken]:
             index += 1
             continue
         if character == "#" and not characters:
-            while index < len(command) and command[index] != "\n":
-                index += 1
+            line_end = command.find("\n", index)
+            if line_end < 0:
+                line_end = len(command)
+            fragment = command[index + 1:line_end]
+            nested = tuple(
+                substitution
+                for nested_token in tokenize(fragment)
+                for substitution in nested_token.substitutions
+            )
+            tokens.append(ShellToken(command[index:line_end], True, nested, True))
+            index = line_end
             continue
         if character == "'":
             quoted = True
@@ -192,8 +204,13 @@ def tokenize(command: str) -> list[ShellToken]:
             index += 1
             while index < len(command) and command[index] != '"':
                 if command[index] == "\\" and index + 1 < len(command):
-                    if command[index + 1] != "\n":
-                        characters.append(command[index + 1])
+                    escaped = command[index + 1]
+                    if escaped == "\n":
+                        pass
+                    elif escaped in '$`"\\':
+                        characters.append(escaped)
+                    else:
+                        characters.extend(("\\", escaped))
                     index += 2
                 elif command[index] == "`":
                     substitution, index = extract_backtick(command, index)
@@ -325,6 +342,9 @@ def _check_command(command: str, indeterminate: set[str]) -> list[dict[str, str]
 
     while index < len(tokens):
         shell_token = tokens[index]
+        if shell_token.comment:
+            index += 1
+            continue
         for substitution in shell_token.substitutions:
             violations.extend(_check_command(substitution, indeterminate))
         token = shell_token.value
@@ -342,6 +362,9 @@ def _check_command(command: str, indeterminate: set[str]) -> list[dict[str, str]
             index += 1
             token = tokens[index].value
         if is_redirection(token):
+            if index + 1 < len(tokens):
+                for substitution in tokens[index + 1].substitutions:
+                    violations.extend(_check_command(substitution, indeterminate))
             index += 2
             continue
         if not shell_token.quoted and token in COMMAND_CONTROL_WORDS:
