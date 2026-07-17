@@ -62,6 +62,26 @@ class CommandGuardTests(unittest.TestCase):
             ],
         )
 
+    def test_preserves_shell_context_for_special_forms(self) -> None:
+        heredoc = "printf x <<'EOF'\ngrep needle file\nEOF\nbat file"
+        self.assertEqual(self.payload(self.run_guard(heredoc))["violations"], [])
+        self.assertEqual(
+            self.payload(self.run_guard("echo `grep needle file`; echo $(find .)"))["violations"],
+            [
+                {"replacement": "rg", "token": "grep"},
+                {"replacement": "fd", "token": "find"},
+            ],
+        )
+        self.assertEqual(
+            self.payload(self.run_guard("time -p grep needle file"))["violations"],
+            [{"replacement": "rg", "token": "grep"}],
+        )
+        self.assertEqual(self.payload(self.run_guard('"if" grep'))["violations"], [])
+        self.assertEqual(
+            self.payload(self.run_guard("grep() { cat file; }"))["violations"],
+            [{"replacement": "bat", "token": "cat"}],
+        )
+
     def test_allows_replacement_commands(self) -> None:
         result = self.run_guard("rg value file | fd '*.py'; bat file; eza; dust")
         self.assertEqual(self.payload(result)["violations"], [])
