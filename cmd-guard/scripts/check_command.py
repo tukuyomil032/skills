@@ -13,6 +13,8 @@ import sys
 
 FORBIDDEN = {"grep": "rg", "find": "fd", "cat": "bat", "ls": "eza", "du": "dust"}
 WRAPPERS = {"command", "env", "sudo"}
+COMMAND_CONTROL_WORDS = {"if", "then", "elif", "else", "while", "until", "do", "time"}
+NON_COMMAND_CONTROL_WORDS = {"case", "esac", "fi", "for", "in", "done", "select"}
 OPTION_ARGUMENTS = {
     "env": {"-C", "--chdir", "-S", "--split-string", "-u", "--unset"},
     "sudo": {
@@ -25,7 +27,7 @@ ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 
 def tokenize(command: str) -> list[str]:
-    lexer = shlex.shlex(command, posix=True, punctuation_chars="|&;()\n")
+    lexer = shlex.shlex(command, posix=True, punctuation_chars="<>|&;(){}!\n")
     lexer.whitespace = " \t\r"
     lexer.whitespace_split = True
     lexer.commenters = ""
@@ -33,7 +35,11 @@ def tokenize(command: str) -> list[str]:
 
 
 def is_separator(token: str) -> bool:
-    return bool(token) and all(character in "|&;()\n" for character in token)
+    return bool(token) and all(character in "|&;(){}!\n" for character in token)
+
+
+def is_redirection(token: str) -> bool:
+    return "<" in token or ">" in token
 
 
 def skip_wrapper_options(tokens: list[str], index: int, wrapper: str) -> int:
@@ -69,6 +75,19 @@ def check_command(command: str) -> list[dict[str, str]]:
             index += 1
             continue
         if ASSIGNMENT.match(token):
+            index += 1
+            continue
+        if token.isdigit() and index + 1 < len(tokens) and is_redirection(tokens[index + 1]):
+            index += 1
+            token = tokens[index]
+        if is_redirection(token):
+            index += 2
+            continue
+        if token in COMMAND_CONTROL_WORDS:
+            index += 1
+            continue
+        if token in NON_COMMAND_CONTROL_WORDS:
+            command_position = False
             index += 1
             continue
 

@@ -49,6 +49,19 @@ class CommandGuardTests(unittest.TestCase):
             [{"replacement": "rg", "token": "grep"}],
         )
 
+    def test_handles_control_words_groups_and_leading_redirections(self) -> None:
+        result = self.run_guard("! grep x f; if find .; then <input cat; fi; { ls; }; 2>errors du -s .")
+        self.assertEqual(
+            self.payload(result)["violations"],
+            [
+                {"replacement": "rg", "token": "grep"},
+                {"replacement": "fd", "token": "find"},
+                {"replacement": "bat", "token": "cat"},
+                {"replacement": "eza", "token": "ls"},
+                {"replacement": "dust", "token": "du"},
+            ],
+        )
+
     def test_allows_replacement_commands(self) -> None:
         result = self.run_guard("rg value file | fd '*.py'; bat file; eza; dust")
         self.assertEqual(self.payload(result)["violations"], [])
