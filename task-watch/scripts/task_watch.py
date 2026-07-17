@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import queue
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -170,6 +172,13 @@ def main(argv: list[str] | None = None) -> int:
             json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+    if exit_code < 0 and os.name == "posix":
+        signal_number = -exit_code
+        try:
+            signal.signal(signal_number, signal.SIG_DFL)
+        except (OSError, ValueError):
+            pass
+        os.kill(os.getpid(), signal_number)
     return exit_code
 
 

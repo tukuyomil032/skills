@@ -1,5 +1,7 @@
 import importlib.util
 import json
+import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -77,6 +79,16 @@ class TaskWatchCliTests(unittest.TestCase):
                 sys.executable, "-c", "raise SystemExit(7)",
             )
         self.assertEqual(result.returncode, 7)
+
+    @unittest.skipUnless(os.name == "posix", "signal propagation is POSIX-specific")
+    def test_propagates_child_signal_termination(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            result = self.run_watch(
+                "--log", str(Path(directory) / "signal.log"),
+                "--",
+                sys.executable, "-c", "import os, signal; os.kill(os.getpid(), signal.SIGTERM)",
+            )
+        self.assertEqual(result.returncode, -signal.SIGTERM)
 
     def test_short_idle_period_is_observed_without_killing_child(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
