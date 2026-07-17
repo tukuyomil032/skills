@@ -1,0 +1,4 @@
+interface:
+  display_name: "Commit Guard"
+  short_description: "Validate commit messages and flag broad staging"
+  default_prompt: "Use $commit-guard to validate this commit message before committing."
