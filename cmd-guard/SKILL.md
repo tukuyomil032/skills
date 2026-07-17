@@ -18,4 +18,6 @@ Read the deterministic JSON and replace each reported token with its suggested u
 
 Supported grammar includes simple commands, assignments, redirections and heredocs, pipelines and list separators, `if`/`while`/`until` command positions, groups, function definitions, the `sudo`/`env`/`command`/`time` wrappers, and command, backtick, or process substitutions. Arithmetic expansion is treated as data.
 
+Inspect command and backtick substitutions inside unquoted heredoc bodies; keep quoted heredoc bodies literal. Parse `env -S` strings recursively. Treat `command -v`/`-V` and `sudo -l`/`-e` operands as non-executed data. A dynamic command word such as `$tool` makes the result indeterminate, while the same expansion in a known command's argument does not.
+
 The JSON always includes `status`, `mode`, `requested_mode`, `indeterminate`, and `violations`. For unsupported grammar such as `case`, `for`, `select`, `coproc`, `[[...]]`, here-strings, or parameter expansion, `status` is `indeterminate`, `mode` falls back to `advisory`, and the checker never blocks even when `--enforce` was requested. Treat that result as requiring manual review; this checker is not a complete Bash parser.

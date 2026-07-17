@@ -113,7 +113,7 @@ def extract_arithmetic(command: str, start: int) -> tuple[str, int]:
 
 def remove_heredoc_bodies(tokens: list[ShellToken]) -> list[ShellToken]:
     output: list[ShellToken] = []
-    pending: list[str] = []
+    pending: list[tuple[str, bool]] = []
     expect_delimiter = False
     in_body = False
     body_line: list[ShellToken] = []
@@ -121,10 +121,14 @@ def remove_heredoc_bodies(tokens: list[ShellToken]) -> list[ShellToken]:
     for token in tokens:
         if in_body:
             if token.value == "\n":
-                if len(body_line) == 1 and body_line[0].value == pending[0]:
+                delimiter, expand = pending[0]
+                if len(body_line) == 1 and body_line[0].value == delimiter:
                     pending.pop(0)
                     if not pending:
                         in_body = False
+                elif expand:
+                    nested = tuple(item for body_token in body_line for item in body_token.substitutions)
+                    token = ShellToken("\n", substitutions=nested)
                 body_line.clear()
                 output.append(token)
             else:
@@ -133,13 +137,17 @@ def remove_heredoc_bodies(tokens: list[ShellToken]) -> list[ShellToken]:
 
         output.append(token)
         if expect_delimiter:
-            pending.append(token.value)
+            pending.append((token.value, not token.quoted))
             expect_delimiter = False
         elif token.value in {"<<", "<<-"} and not token.quoted:
             expect_delimiter = True
         elif token.value == "\n" and pending:
             in_body = True
 
+    if in_body and pending and body_line:
+        delimiter, _ = pending[0]
+        if len(body_line) == 1 and body_line[0].value == delimiter:
+            pending.pop(0)
     if expect_delimiter or pending:
         raise ValueError("unterminated heredoc")
     return output
@@ -183,7 +191,8 @@ def tokenize(command: str) -> list[ShellToken]:
             index += 1
             while index < len(command) and command[index] != '"':
                 if command[index] == "\\" and index + 1 < len(command):
-                    characters.append(command[index + 1])
+                    if command[index + 1] != "\n":
+                        characters.append(command[index + 1])
                     index += 2
                 elif command[index] == "`":
                     substitution, index = extract_backtick(command, index)
@@ -204,8 +213,9 @@ def tokenize(command: str) -> list[ShellToken]:
             index += 1
             continue
         if character == "\\" and index + 1 < len(command):
-            quoted = True
-            characters.append(command[index + 1])
+            if command[index + 1] != "\n":
+                quoted = True
+                characters.append(command[index + 1])
             index += 2
             continue
         if character == "`":
@@ -264,7 +274,20 @@ def skip_wrapper_options(tokens: list[ShellToken], index: int, wrapper: str) -> 
     return index
 
 
+def wrapper_tokens(tokens: list[ShellToken], index: int) -> list[ShellToken]:
+    result: list[ShellToken] = []
+    for token in tokens[index:]:
+        if is_separator(token.value):
+            break
+        result.append(token)
+    return result
+
+
 def check_command(command: str) -> list[dict[str, str]]:
+    return _check_command(command, set())
+
+
+def _check_command(command: str, indeterminate: set[str]) -> list[dict[str, str]]:
     tokens = tokenize(command)
     violations: list[dict[str, str]] = []
     index = 0
@@ -273,7 +296,7 @@ def check_command(command: str) -> list[dict[str, str]]:
     while index < len(tokens):
         shell_token = tokens[index]
         for substitution in shell_token.substitutions:
-            violations.extend(check_command(substitution))
+            violations.extend(_check_command(substitution, indeterminate))
         token = shell_token.value
         if is_separator(token):
             command_position = True
@@ -308,9 +331,56 @@ def check_command(command: str) -> list[dict[str, str]]:
             command_position = False
             index += 3
             continue
+        if executable == "env":
+            wrapper_index = index + 1
+            while wrapper_index < len(tokens):
+                option = tokens[wrapper_index].value
+                if ASSIGNMENT.match(option):
+                    wrapper_index += 1
+                    continue
+                if option in {"-S", "--split-string"} and wrapper_index + 1 < len(tokens):
+                    nested_command = tokens[wrapper_index + 1].value
+                    indeterminate.update(unsupported_reasons(nested_command))
+                    violations.extend(_check_command(nested_command, indeterminate))
+                    command_position = False
+                    index = wrapper_index + 2
+                    break
+                if option.startswith("--split-string="):
+                    nested_command = option.split("=", 1)[1]
+                    indeterminate.update(unsupported_reasons(nested_command))
+                    violations.extend(_check_command(nested_command, indeterminate))
+                    command_position = False
+                    index = wrapper_index + 1
+                    break
+                if not option.startswith("-") or option == "-":
+                    index = wrapper_index
+                    break
+                option_name = option.split("=", 1)[0]
+                wrapper_index += 1
+                if option_name in OPTION_ARGUMENTS["env"] and "=" not in option:
+                    wrapper_index += 1
+            else:
+                command_position = False
+                index = wrapper_index
+            continue
+        if executable == "command" and any(
+            item.value in {"-v", "-V"} for item in wrapper_tokens(tokens, index + 1)
+        ):
+            command_position = False
+            index += 1
+            continue
+        if executable == "sudo" and any(
+            item.value in {"-e", "--edit", "-l", "--list"}
+            for item in wrapper_tokens(tokens, index + 1)
+        ):
+            command_position = False
+            index += 1
+            continue
         if executable in WRAPPERS:
             index = skip_wrapper_options(tokens, index + 1, executable)
             continue
+        if token.startswith("$"):
+            indeterminate.add(f"dynamic command word: {token}")
         if executable in FORBIDDEN:
             violations.append({"replacement": FORBIDDEN[executable], "token": executable})
         command_position = False
@@ -346,8 +416,9 @@ def main(argv: list[str] | None = None) -> int:
     command = args.command if args.command is not None else sys.stdin.read()
     requested_mode = "enforce" if args.enforce else "advisory"
     try:
-        violations = check_command(command)
-        indeterminate = unsupported_reasons(command)
+        indeterminate_set = set(unsupported_reasons(command))
+        violations = _check_command(command, indeterminate_set)
+        indeterminate = sorted(indeterminate_set)
         payload = {
             "command": command,
             "indeterminate": indeterminate,

@@ -106,6 +106,46 @@ class CommandGuardTests(unittest.TestCase):
         self.assertEqual(payload["mode"], "advisory")
         self.assertTrue(payload["indeterminate"])
 
+    def test_heredoc_expansions_follow_delimiter_quoting(self) -> None:
+        unquoted = "printf x <<EOF\nplain grep words\n$(grep nested file)\n`find .`\nEOF"
+        self.assertEqual(
+            self.payload(self.run_guard(unquoted))["violations"],
+            [
+                {"replacement": "rg", "token": "grep"},
+                {"replacement": "fd", "token": "find"},
+            ],
+        )
+        quoted = "printf x <<'EOF'\n$(grep literal file)\nEOF"
+        result = self.run_guard("--enforce", quoted)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self.payload(result)["violations"], [])
+
+    def test_wrapper_modes_distinguish_execution_from_queries(self) -> None:
+        self.assertEqual(
+            self.payload(self.run_guard("env -S 'grep -n value file'"))["violations"],
+            [{"replacement": "rg", "token": "grep"}],
+        )
+        for command in ("command -v grep", "command -V find", "sudo -l cat", "sudo -e ls"):
+            with self.subTest(command=command):
+                self.assertEqual(self.payload(self.run_guard(command))["violations"], [])
+
+    def test_dynamic_command_word_is_indeterminate_only_in_command_position(self) -> None:
+        dynamic = self.run_guard("--enforce", "$tool file")
+        payload = self.payload(dynamic)
+        self.assertEqual(dynamic.returncode, 0)
+        self.assertEqual(payload["status"], "indeterminate")
+        self.assertEqual(payload["mode"], "advisory")
+        ordinary_argument = self.payload(self.run_guard("echo $tool"))
+        self.assertEqual(ordinary_argument["status"], "clear")
+        self.assertEqual(ordinary_argument["indeterminate"], [])
+
+    def test_backslash_newline_continuation_forms_one_command_word(self) -> None:
+        result = self.run_guard("gr\\\nep needle file")
+        self.assertEqual(
+            self.payload(result)["violations"],
+            [{"replacement": "rg", "token": "grep"}],
+        )
+
     def test_allows_replacement_commands(self) -> None:
         result = self.run_guard("rg value file | fd '*.py'; bat file; eza; dust")
         self.assertEqual(self.payload(result)["violations"], [])
