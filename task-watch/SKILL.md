@@ -5,7 +5,7 @@ description: Run long local commands with live combined output, persistent logs,
 
 # Task Watch
 
-Run the command after `--` without a shell:
+Run the command after a required literal `--` separator without a shell. Never omit the separator; it prevents watcher options from being confused with child arguments.
 
 ```bash
 python3 scripts/task_watch.py --log build.log --json-summary build.json -- make test

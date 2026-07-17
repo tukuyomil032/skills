@@ -107,6 +107,17 @@ class TaskWatchCliTests(unittest.TestCase):
         self.assertTrue(payload["idle_observed"])
         self.assertIn("idle", result.stderr.lower())
 
+    def test_requires_literal_separator_before_child_command(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "executed"
+            result = self.run_watch(
+                "--log", str(Path(directory) / "missing-separator.log"),
+                sys.executable, "-c", f"from pathlib import Path; Path({str(marker)!r}).touch()",
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertFalse(marker.exists())
+            self.assertIn("--", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

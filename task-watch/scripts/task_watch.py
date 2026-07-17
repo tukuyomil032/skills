@@ -146,10 +146,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--heartbeat-seconds", type=float, default=30.0)
     parser.add_argument("--summary-lines", type=int, default=20)
     parser.add_argument("--json-summary", type=Path)
-    parser.add_argument("command", nargs=argparse.REMAINDER)
-    args = parser.parse_args(argv)
-    if args.command and args.command[0] == "--":
-        args.command = args.command[1:]
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    separator = arguments.index("--") if "--" in arguments else None
+    option_arguments = arguments if separator is None else arguments[:separator]
+    if "-h" in option_arguments or "--help" in option_arguments:
+        parser.parse_args(option_arguments)
+    if separator is None:
+        parser.error("a literal -- separator is required before the child command")
+    args = parser.parse_args(option_arguments)
+    args.command = arguments[separator + 1:]
     if not args.command:
         parser.error("a command is required after --")
     if args.idle_seconds < 0 or args.heartbeat_seconds < 0 or args.summary_lines < 0:
