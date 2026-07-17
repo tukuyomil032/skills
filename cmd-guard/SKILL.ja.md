@@ -18,6 +18,6 @@ python3 scripts/check_command.py --enforce < command.txt
 
 対応文法は、単純コマンド、代入、リダイレクトと heredoc、パイプラインとリスト区切り、`if` / `while` / `until` のコマンド位置、グループ、関数定義、`sudo` / `env` / `command` / `time` ラッパー、command / backtick / process substitution である。算術展開はデータとして扱う。
 
-引用なし heredoc 本文の command / backtick substitution は検査し、引用付き heredoc 本文はリテラルとして扱う。`env -S` 文字列は再帰的に解析する。`command -v` / `-V` と `sudo -l` / `-e` のオペランドは実行されないデータとして扱う。`$tool` のような動的コマンド語は indeterminate にするが、既知コマンドの引数内にある同じ展開は clear のままにする。
+引用なし heredoc 本文の command / backtick substitution は検査し、引用付き本文とすべての heredoc delimiter 語はリテラルとして扱う。分離・連結どちらの `env -S` 文字列も再帰的に解析する。`command -v` / `-V` と `sudo -l` / `-e` はコマンド語より前にある場合だけ非実行モードとして扱う。コマンド語内の展開はすべて indeterminate にするが、既知コマンドの引数内にある同じ展開は clear のままにする。
 
 JSON には常に `status`、`mode`、`requested_mode`、`indeterminate`、`violations` が入る。`case`、`for`、`select`、`coproc`、`[[...]]`、here-string、parameter expansion などの対応外文法では、`status` を `indeterminate`、`mode` を `advisory` に戻し、`--enforce` 指定時もブロックしない。手動確認へ切り替える。このチェッカーは完全な Bash パーサーではない。

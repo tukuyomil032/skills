@@ -146,6 +146,32 @@ class CommandGuardTests(unittest.TestCase):
             [{"replacement": "rg", "token": "grep"}],
         )
 
+    def test_wrapper_option_scanning_stops_at_executed_command(self) -> None:
+        for command in ("command grep -v value file", "sudo -- grep -e value file"):
+            with self.subTest(command=command):
+                self.assertEqual(
+                    self.payload(self.run_guard(command))["violations"],
+                    [{"replacement": "rg", "token": "grep"}],
+                )
+        self.assertEqual(
+            self.payload(self.run_guard("env -S'grep x file'"))["violations"],
+            [{"replacement": "rg", "token": "grep"}],
+        )
+
+    def test_expansion_in_command_word_is_indeterminate(self) -> None:
+        commands = ("g$part file", "pre${tool} file", "$(printf grep) file", "`printf grep` file")
+        for command in commands:
+            with self.subTest(command=command):
+                result = self.run_guard("--enforce", command)
+                payload = self.payload(result)
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(payload["status"], "indeterminate")
+                self.assertEqual(payload["mode"], "advisory")
+
+    def test_heredoc_delimiter_word_substitutions_are_not_scanned(self) -> None:
+        command = "bat <<$(grep)\nliteral body\n$(grep)"
+        self.assertEqual(self.payload(self.run_guard(command))["violations"], [])
+
     def test_allows_replacement_commands(self) -> None:
         result = self.run_guard("rg value file | fd '*.py'; bat file; eza; dust")
         self.assertEqual(self.payload(result)["violations"], [])

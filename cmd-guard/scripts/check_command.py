@@ -138,6 +138,7 @@ def remove_heredoc_bodies(tokens: list[ShellToken]) -> list[ShellToken]:
         output.append(token)
         if expect_delimiter:
             pending.append((token.value, not token.quoted))
+            output[-1] = ShellToken(token.value, token.quoted)
             expect_delimiter = False
         elif token.value in {"<<", "<<-"} and not token.quoted:
             expect_delimiter = True
@@ -283,6 +284,35 @@ def wrapper_tokens(tokens: list[ShellToken], index: int) -> list[ShellToken]:
     return result
 
 
+def command_is_query(tokens: list[ShellToken], index: int) -> bool:
+    for token in wrapper_tokens(tokens, index):
+        if token.value == "--":
+            return False
+        if token.value in {"-v", "-V"}:
+            return True
+        if not token.value.startswith("-") or token.value == "-":
+            return False
+    return False
+
+
+def sudo_is_nonexecuting(tokens: list[ShellToken], index: int) -> bool:
+    wrapper = wrapper_tokens(tokens, index)
+    position = 0
+    while position < len(wrapper):
+        option = wrapper[position].value
+        if option == "--":
+            return False
+        if option in {"-e", "--edit", "-l", "--list"}:
+            return True
+        if not option.startswith("-") or option == "-":
+            return False
+        option_name = option.split("=", 1)[0]
+        position += 1
+        if option_name in OPTION_ARGUMENTS["sudo"] and "=" not in option:
+            position += 1
+    return False
+
+
 def check_command(command: str) -> list[dict[str, str]]:
     return _check_command(command, set())
 
@@ -352,6 +382,13 @@ def _check_command(command: str, indeterminate: set[str]) -> list[dict[str, str]
                     command_position = False
                     index = wrapper_index + 1
                     break
+                if option.startswith("-S") and option != "-S":
+                    nested_command = option[2:]
+                    indeterminate.update(unsupported_reasons(nested_command))
+                    violations.extend(_check_command(nested_command, indeterminate))
+                    command_position = False
+                    index = wrapper_index + 1
+                    break
                 if not option.startswith("-") or option == "-":
                     index = wrapper_index
                     break
@@ -363,23 +400,18 @@ def _check_command(command: str, indeterminate: set[str]) -> list[dict[str, str]
                 command_position = False
                 index = wrapper_index
             continue
-        if executable == "command" and any(
-            item.value in {"-v", "-V"} for item in wrapper_tokens(tokens, index + 1)
-        ):
+        if executable == "command" and command_is_query(tokens, index + 1):
             command_position = False
             index += 1
             continue
-        if executable == "sudo" and any(
-            item.value in {"-e", "--edit", "-l", "--list"}
-            for item in wrapper_tokens(tokens, index + 1)
-        ):
+        if executable == "sudo" and sudo_is_nonexecuting(tokens, index + 1):
             command_position = False
             index += 1
             continue
         if executable in WRAPPERS:
             index = skip_wrapper_options(tokens, index + 1, executable)
             continue
-        if token.startswith("$"):
+        if "$" in token or shell_token.substitutions:
             indeterminate.add(f"dynamic command word: {token}")
         if executable in FORBIDDEN:
             violations.append({"replacement": FORBIDDEN[executable], "token": executable})
