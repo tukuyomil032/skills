@@ -1,0 +1,4 @@
+interface:
+  display_name: "Task Watch"
+  short_description: "Watch long local commands and distill evidence"
+  default_prompt: "Use $task-watch to run this long local command with logging and a concise summary."
